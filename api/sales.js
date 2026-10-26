@@ -5,7 +5,8 @@ export default async function handler(req,res){
  if(!process.env.BLOB_READ_WRITE_TOKEN)return res.status(503).json({error:'비공개 저장소 연결이 필요합니다.'})
  try{
   if(req.method==='GET'){
-   const blob=await get(PATH,{access:'private',token:process.env.BLOB_READ_WRITE_TOKEN})
+   let blob=null
+   try{blob=await get(PATH,{access:'private',token:process.env.BLOB_READ_WRITE_TOKEN})}catch(error){if(error?.name!=='BlobNotFoundError'&&error?.status!==404&&error?.statusCode!==404)throw error}
    if(!blob){
     const seed=process.env.IRUDA_INITIAL_SALES
     if(!seed)return res.status(200).json({rows:[],updatedAt:null})
