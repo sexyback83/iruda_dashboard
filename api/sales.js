@@ -6,7 +6,15 @@ export default async function handler(req,res){
  try{
   if(req.method==='GET'){
    const blob=await get(PATH,{access:'private',token:process.env.BLOB_READ_WRITE_TOKEN})
-   if(!blob)return res.status(200).json({rows:[],updatedAt:null})
+   if(!blob){
+    const seed=process.env.IRUDA_INITIAL_SALES
+    if(!seed)return res.status(200).json({rows:[],updatedAt:null})
+    const cats=['1회시간권','스터디룸','기간권','정액시간권','사물함']
+    const base=Date.UTC(2026,1,1)
+    const compact=JSON.parse(seed)
+    const rows=compact.map((x,i)=>({id:'IMPORT-'+(i+1),date:new Date(base+x[0]*86400000).toISOString().slice(0,10),product:cats[x[1]]||'기타',name:'',amount:x[2],refund:x[3]?x[2]:0,start:'',end:'',status:x[3]?'환불':'결제완료'}))
+    return res.status(200).json({rows,updatedAt:'2026-10-26T00:00:00.000Z',source:'initial-private-import'})
+   }
    const content=await new Response(blob.stream).text()
    const parsed=JSON.parse(content)
    return res.status(200).json(parsed)
