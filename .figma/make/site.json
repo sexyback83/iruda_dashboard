@@ -1,0 +1,10 @@
+{
+  "description": "스터디카페 운영자가 매출을 기간별·상품별로 분석하고 엑셀 데이터를 관리해 매출 추이와 변동 원인을 파악하는 대시보드입니다.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
