@@ -25,7 +25,7 @@ const dateText=(value:unknown):string=>{
  if(m)return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`
  return s.slice(0,10)
 }
-const validDate=(s:string)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const d=new Date(s+'T00:00:00');return !isNaN(d.getTime())&&d.toISOString().slice(0,10)===s}
+const validDate=(s:string)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const d=new Date(s+'T00:00:00Z');return !isNaN(d.getTime())&&d.toISOString().slice(0,10)===s}
 const numeric=(v:unknown)=>{if(typeof v==='number')return Number.isFinite(v)?v:NaN;const s=String(v??'').replace(/[,₩원\s]/g,'');return s===''?0:Number(s)}
 const category=(s:string)=>CATEGORIES.find(x=>s.includes(x))??(s.includes('일일')?'1회시간권':s.includes('정액')?'정액시간권':s.includes('고정')?'기간권':'기타')
 const STORAGE='iruda-dashboard-v3'
