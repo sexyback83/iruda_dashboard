@@ -69,7 +69,7 @@ function App(){
  const [showMenu,setShowMenu]=useState(false)
  useEffect(()=>{try{localStorage.setItem(STORAGE,JSON.stringify(rows))}catch{setMessage('브라우저 저장 공간이 부족합니다. 데이터를 엑셀로 백업해 주세요.')}},[rows])
  useEffect(()=>{let active=true;fetch('/api/sales',{credentials:'same-origin',cache:'no-store'}).then(async response=>{if(!response.ok)throw Error('서버 응답 '+response.status);return response.json()}).then(data=>{if(!active)return;if(Array.isArray(data.rows)&&data.rows.length){setRows(data.rows);setServerUpdated(data.updatedAt||null);setCloudStatus('서버 데이터 연결됨')}else setCloudStatus('서버 데이터 없음 · 첫 업로드 필요')}).catch(()=>{if(active)setCloudStatus('서버 연결 실패 · 브라우저 데이터 사용')});return()=>{active=false}},[])
- const saveCloud=async(data:Tx[])=>{setCloudStatus('비공개 서버 저장 중');try{const response=await fetch('/api/sales',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({rows:data})});const result=await response.json();if(!response.ok)throw Error(result.error||'서버 오류');setServerUpdated(result.updatedAt);setCloudStatus('서버 데이터 연결됨');setMessage('비공개 서버에 '+data.length.toLocaleString()+'건을 저장했습니다. 다른 기기에서도 자동으로 불러옵니다.')}catch(e){setCloudStatus('서버 저장 실패');setMessage('로컬 데이터는 유지되었습니다. 서버 저장 실패: '+String(e))}}
+ const saveCloud=async(data:Tx[])=>{setCloudStatus('비공개 서버 저장 중');try{const response=await fetch('/api/sales',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({rows:data})});const raw=await response.text();let result:any;try{result=JSON.parse(raw)}catch{throw Error('서버가 JSON이 아닌 응답을 반환했습니다. HTTP '+response.status)}if(!response.ok)throw Error(result.error||'서버 오류');setServerUpdated(result.updatedAt);setCloudStatus('서버 데이터 연결됨');setMessage('비공개 서버에 '+data.length.toLocaleString()+'건을 저장했습니다. 다른 기기에서도 자동으로 불러옵니다.')}catch(e){setCloudStatus('서버 저장 실패');setMessage('로컬 데이터는 유지되었습니다. 서버 저장 실패: '+String(e))}}
  useEffect(()=>{localStorage.setItem('iruda-categories',JSON.stringify(customCategories))},[customCategories])
  const issues=useMemo(()=>validate(rows),[rows])
  const valid=useMemo(()=>rows.filter(r=>validDate(r.date)&&Number.isFinite(r.amount)&&Number.isFinite(r.refund)&&r.amount>=0&&r.refund>=0),[rows])
@@ -107,17 +107,25 @@ function App(){
  const convert=():Tx[]=>draft.map((r,i)=>({id:String(r[mapped('id')]??'').trim()||'ROW-'+String(i+2),date:dateText(r[mapped('date')]),product:category(String(r[mapped('product')]??r[mapped('name')]??'')),name:String(r[mapped('name')]??''),amount:numeric(r[mapped('amount')]),refund:String(r[mapped('status')]??'').trim()==='환불'?numeric(r[mapped('amount')]):numeric(r[mapped('refund')]),start:dateText(r[mapped('start')]),end:dateText(r[mapped('end')]),status:String(r[mapped('status')]??'')}))
  const read=async(file?:File)=>{if(!file)return;try{
   if(file.size>15*1024*1024)throw Error('파일 크기는 15MB 이하로 제한됩니다.')
-  const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true})
-  const data=XLSX.utils.sheet_to_json<Record<string,unknown>>(book.Sheets[book.SheetNames[0]],{defval:''})
+  const buffer=await file.arrayBuffer()
+  let book:XLSX.WorkBook
+  if(file.name.toLowerCase().endsWith('.csv')){
+   const bytes=new Uint8Array(buffer)
+   let csv=new TextDecoder('utf-8',{fatal:false}).decode(bytes)
+   if(csv.includes('\uFFFD')){try{csv=new TextDecoder('euc-kr').decode(bytes)}catch{/* keep UTF-8 */}}
+   book=XLSX.read(csv.replace(/^\uFEFF/,''),{type:'string',raw:true})
+  }else book=XLSX.read(buffer,{type:'array',cellDates:true})
+  const data=XLSX.utils.sheet_to_json<Record<string,unknown>>(book.Sheets[book.SheetNames[0]],{defval:'',raw:false})
   if(!data.length)throw Error('파일에 데이터가 없습니다.')
+  if(!Object.keys(data[0]).some(k=>['주문일시','결제일시','결제일'].includes(k.trim())))throw Error('결제일 열을 찾을 수 없습니다. 이루다 결제로그 또는 표준 엑셀 양식을 확인해 주세요.')
   const keys=Object.keys(data[0]);const map:Record<string,string>={}
   for(const [field,aliases] of Object.entries(FIELDS)){map[field]=keys.find(k=>aliases.some(a=>a.toLowerCase()===k.trim().toLowerCase()))||''}
   setDraft(data);setMapping(map);setFileName(file.name);setTab('매출 데이터 관리');setMessage(`${data.length.toLocaleString()}행을 읽었습니다. 열 연결을 확인한 후 가져오세요.`)
  }catch(e){setMessage('파일 읽기 실패: '+String(e))}}
  const importRows=()=>{if(!mapped('date')||!mapped('amount')){setMessage('결제일과 실제 결제금액 열은 반드시 연결해야 합니다.');return}
  const converted=convert();const errs=validate(converted).filter(x=>x.level==='오류')
- if(errs.length){setMessage(`가져오기 중단: 오류 ${errs.length}건. 데이터 검증 화면에서 확인하기 전에 원본 파일을 수정해 주세요. 첫 오류: ${errs[0].message} (${errs[0].row}행)`);return}
- setRows(converted);setDraft([]);setMessage(`${converted.length.toLocaleString()}건의 거래를 적용했습니다. 서버 저장을 진행합니다.`);void saveCloud(converted)}
+ if(errs.length){setMessage(`가져오기 중단: 오류 ${errs.length}건. 첫 오류: ${errs[0].message} (${errs[0].row}행). 원본 파일을 확인해 주세요.`);return}
+ setRows(converted);setDraft([]);setYear('전체');setMonth('전체');setProduct('전체');setBasis('결제일');setShowRefunds(true);setTab('통합 대시보드');setMessage(`${converted.length.toLocaleString()}건 분석 완료. 서버 저장을 별도로 진행합니다.`);void saveCloud(converted)}
  const navigation=['통합 대시보드','일별 매출 분석','월별 매출 분석','연도별 매출 분석','상품별 매출 분석','이용기간 매출 분석','매출 데이터 관리','데이터 검증','설정']
  const table=(items:{label:string;amount:number;count:number}[])=> <div className="panel" style={{padding:20,overflowX:'auto',marginTop:16}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}><thead><tr><th style={{textAlign:'left',padding:12}}>기간 / 분류</th><th style={{textAlign:'right'}}>순매출</th><th style={{textAlign:'right'}}>거래 건수</th><th style={{textAlign:'right'}}>비중</th></tr></thead><tbody>{items.map(r=><tr key={r.label} style={{borderTop:'1px solid #e2e8f0'}}><td style={{padding:12}}>{r.label}</td><td style={{textAlign:'right'}}>{money(r.amount)}</td><td style={{textAlign:'right'}}>{r.count.toLocaleString()}건</td><td style={{textAlign:'right'}}>{total?((r.amount/total)*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table>{!items.length&&<p style={{padding:16,color:'#64748b'}}>조회할 거래가 없습니다. 매출 데이터를 업로드해 주세요.</p>}</div>
  const bars=(items:{label:string;amount:number;count:number}[])=>{const max=Math.max(1,...items.map(x=>Math.abs(x.amount)));return <div className="panel" style={{padding:20,marginTop:16}}><h2 style={{margin:'0 0 18px',fontSize:17}}>매출 추이</h2><div style={{display:'flex',alignItems:'end',gap:8,overflowX:'auto',height:225}}>{items.map(x=><div key={x.label} title={x.label+' '+money(x.amount)} style={{flex:'1 0 35px',minWidth:35,textAlign:'center'}}><div style={{height:175,display:'flex',alignItems:'end',justifyContent:'center'}}><div style={{height:Math.max(2,Math.abs(x.amount)/max*165),background:x.amount<0?'#dc2626':'#2563eb',borderRadius:'5px 5px 0 0',width:'65%'}}/></div><small style={{fontSize:10,whiteSpace:'nowrap'}}>{x.label.slice(-7)}</small></div>)}</div></div>}
